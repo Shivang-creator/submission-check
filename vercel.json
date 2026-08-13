@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/check.py": {
+      "includeFiles": "{check_engine.py,cli.py,rules/**}",
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/check",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    }
+  ]
+}

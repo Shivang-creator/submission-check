@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>submission-check</title>
+<meta name="description" content="Lint a hackathon submission before you send it. Ten rules, each learned from a submission that lost.">
+<style>
+  /* ------------------------------------------------------------------ *
+   * Tokens. Dark, low-chroma, no gradients: the page is a reading
+   * surface for someone about to be told their draft is weak.
+   * Severity hues are muted on purpose -- the finding should carry the
+   * alarm, not the interface.
+   * ------------------------------------------------------------------ */
+  :root {
+    --bg:          #0f1216;
+    --panel:       #161a20;
+    --quote:       #12161b;
+    --line:        #262c35;
+    --line-soft:   #1e232b;
+
+    --ink:         #e7eaef;
+    --ink-dim:     #b0b8c4;
+    --ink-mute:    #838c99;
+
+    --blocker:     #e2705a;
+    --friction:    #d3a04a;
+    --note:        #7ba3cc;
+    --focus:       #8fb8e0;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --wrap: 820px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    padding: 0 24px 96px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: var(--wrap); margin: 0 auto; }
+
+  a { color: var(--note); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* ---- masthead ----------------------------------------------------- */
+
+  .masthead { padding: 72px 0 44px; }
+
+  .wordmark {
+    margin: 0 0 28px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    color: var(--ink-mute);
+  }
+
+  .masthead h1 {
+    margin: 0 0 20px;
+    font-size: clamp(1.75rem, 4.4vw, 2.375rem);
+    line-height: 1.22;
+    font-weight: 550;
+    letter-spacing: -0.021em;
+    max-width: 17ch;
+  }
+
+  .standfirst {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--ink-dim);
+    font-size: 1.0625rem;
+  }
+
+  /* ---- the draft ---------------------------------------------------- */
+
+  .draft-label,
+  .examples-label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+
+  .draft-label { margin-bottom: 10px; }
+
+  #draft {
+    display: block;
+    width: 100%;
+    min-height: 340px;
+    padding: 20px 22px;
+    resize: vertical;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.72;
+    tab-size: 2;
+  }
+
+  #draft::placeholder { color: var(--ink-mute); }
+
+  #draft:focus-visible { border-color: var(--focus); outline-offset: 0; }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 20px;
+  }
+
+  .btn-primary {
+    padding: 12px 22px;
+    background: var(--ink);
+    color: var(--bg);
+    border: 1px solid var(--ink);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 550;
+    letter-spacing: -0.005em;
+    cursor: pointer;
+  }
+
+  .btn-primary:hover:not(:disabled) { background: #fff; border-color: #fff; }
+  .btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+  .examples { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .examples-label { margin-right: 2px; }
+
+  .btn-ghost {
+    padding: 8px 14px;
+    background: transparent;
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+
+  .btn-ghost:hover { color: var(--ink); border-color: #39414d; }
+
+  /* ---- results ------------------------------------------------------ */
+
+  #results { margin-top: 64px; }
+  #results:empty { margin-top: 0; }
+
+  .rule-off { border-top: 1px solid var(--line-soft); }
+
+  /* The score. Big, per the brief, but set light and tabular so it reads
+     as a measurement rather than a shout. */
+  .verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 28px;
+    padding: 40px 0 8px;
+  }
+
+  .score {
+    font-size: clamp(4rem, 13vw, 5.75rem);
+    font-weight: 250;
+    line-height: 0.9;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .score-den {
+    font-size: 0.28em;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--ink-mute);
+    margin-left: 0.12em;
+  }
+
+  .verdict-text { padding-bottom: 4px; }
+
+  .verdict-line {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+  }
+
+  .verdict-counts {
+    margin: 4px 0 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-mute);
+  }
+
+  .clean-note {
+    margin: 24px 0 0;
+    color: var(--ink-dim);
+    max-width: 58ch;
+  }
+
+  /* ---- one severity group ------------------------------------------- */
+
+  .group { margin-top: 56px; }
+
+  .group-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
+    margin: 0 0 22px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: inherit;
+    font-weight: 400;
+  }
+
+  .group-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .group-gloss { font-size: 13.5px; color: var(--ink-mute); }
+
+  .group-blocker  .group-name { color: var(--blocker); }
+  .group-friction .group-name { color: var(--friction); }
+  .group-note     .group-name { color: var(--note); }
+
+  /* ---- one finding --------------------------------------------------- */
+
+  .card {
+    padding: 22px 24px 24px;
+    margin-bottom: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-left: 2px solid var(--line);
+    border-radius: 0 5px 5px 0;
+  }
+
+  .card:last-child { margin-bottom: 0; }
+
+  .card-blocker  { border-left-color: var(--blocker); }
+  .card-friction { border-left-color: var(--friction); }
+  .card-note     { border-left-color: var(--note); }
+
+  .card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 20px;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 550;
+    line-height: 1.4;
+    letter-spacing: -0.011em;
+  }
+
+  .card-rule {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-mute);
+  }
+
+  /* The signature block. This tool's one guarantee is that every quote is a
+     verbatim span of your draft -- so the quote gets the strongest treatment
+     on the card, and an absence gets a visibly different, emptier one. */
+  .ev-line {
+    display: block;
+    margin-bottom: 7px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+
+  .evidence {
+    margin: 0 0 18px;
+    padding: 14px 18px;
+    background: var(--quote);
+    border: 1px solid var(--line-soft);
+    border-left: 2px solid var(--line);
+    border-radius: 0 4px 4px 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.68;
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .card-blocker  .evidence { border-left-color: #6b3529; }
+  .card-friction .evidence { border-left-color: #6a5124; }
+  .card-note     .evidence { border-left-color: #3c5168; }
+
+  .evidence-absent {
+    background: transparent;
+    border: 1px dashed var(--line);
+    border-radius: 4px;
+    color: var(--ink-mute);
+    white-space: normal;
+  }
+
+  .fix {
+    margin: 0 0 14px;
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    color: var(--ink);
+  }
+
+  .tag {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    padding-top: 1px;
+    min-width: 3ch;
+  }
+
+  .prov {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-mute);
+    max-width: 70ch;
+  }
+
+  /* ---- notices ------------------------------------------------------- */
+
+  .notice {
+    margin-top: 40px;
+    padding: 20px 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--friction);
+    border-radius: 0 5px 5px 0;
+  }
+
+  .notice p { margin: 0; max-width: 64ch; }
+  .notice p + p { margin-top: 10px; color: var(--ink-dim); font-size: 14.5px; }
+  .notice code { font-family: var(--mono); font-size: 0.9em; color: var(--ink); }
+
+  /* ---- colophon ------------------------------------------------------ */
+
+  .colophon {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 13px;
+    line-height: 1.66;
+    color: var(--ink-mute);
+    max-width: 64ch;
+  }
+
+  .colophon p { margin: 0 0 8px; }
+  .colophon p:last-child { margin-bottom: 0; }
+  .colophon code { font-family: var(--mono); font-size: 0.92em; }
+
+  .reveal { animation: rise 260ms ease-out both; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; }
+    * { scroll-behavior: auto !important; }
+  }
+
+  @media (max-width: 560px) {
+    body { padding: 0 18px 72px; }
+    .masthead { padding: 48px 0 36px; }
+    .card { padding: 20px 18px 22px; }
+    .actions { gap: 18px; }
+    .btn-primary { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="wordmark">submission-check</p>
+    <h1>Lint a hackathon submission before you send it.</h1>
+    <p class="standfirst">
+      Ten rules, each one learned from a real submission that lost. Every finding quotes an
+      exact span of your draft, gives you one fix, and names the loss it came from.
+    </p>
+  </header>
+
+  <main>
+    <form id="form" novalidate>
+      <label class="draft-label" for="draft">Your draft</label>
+      <textarea id="draft" spellcheck="false" autocomplete="off"
+        placeholder="Paste the whole submission — headings and all."></textarea>
+
+      <div class="actions">
+        <button type="submit" class="btn-primary" id="check">Check my submission</button>
+        <div class="examples">
+          <span class="examples-label" id="ex-label">Load an example</span>
+          <button type="button" class="btn-ghost" data-example="lost" aria-describedby="ex-label">
+            A submission that lost
+          </button>
+          <button type="button" class="btn-ghost" data-example="won" aria-describedby="ex-label">
+            A submission that won
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <section id="results" aria-live="polite"></section>
+  </main>
+
+  <footer class="colophon">
+    <p>
+      The same ten rules as <code>python cli.py draft.md</code>. No model reads your draft —
+      the findings come from pure functions, which is why every quote is verifiable.
+    </p>
+    <p>
+      Your draft is posted to the checker, linted, and returned in the response. Nothing is stored.
+    </p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  document.title = "JS-RAN-OK";
+
+  /* The two fixtures from the repo, inlined verbatim so the examples load
+     with no network. Sources: fixtures/proofprint.md, fixtures/firstframe.md */
+  var EXAMPLE_LOST = "# ProofPrint\n\n## Inspiration\n\nOn 2 August 2026 EU AI Act Article 50 became applicable, and with it the\nobligation to mark synthetic image content in a machine-readable way. The\nexisting answer is C2PA manifests, but a manifest is a sidecar: strip the\nmetadata and the claim is gone. Regulators will ask providers to prove that a\nmark survives ordinary redistribution, and today most of them cannot.\n\nWe built ProofPrint to close that gap: a sealing service that writes a\nprovenance claim *into* the pixels and into immutable object storage at the\nsame time, so that the claim and the evidence fail together or not at all.\n\n## What it does\n\nProofPrint takes an image, seals it, and later answers one question: is this\nthe image we sealed, and who said so?\n\nSealing does three things at once:\n\n- writes a 64-bit provenance identifier into the image using a frequency-domain\n  watermark, which is what survives re-encoding\n- writes the C2PA manifest as a sidecar, which is what other tools read\n- writes both to a Backblaze B2 bucket under Object Lock in compliance mode, so\n  the record cannot be rewritten by us or by anyone holding our keys\n\nVerification reverses it. Upload a candidate image, get back the recovered\nidentifier, the bit error rate against the sealed original, the manifest, and\nthe Object Lock retention stamp on the stored record.\n\n## How we built it\n\nThe service is a FastAPI app in front of the Genblaze SDK, with the watermark\ncodec written from scratch because we could not find one that round-tripped\nthrough a JPEG re-encode without shipping a 400MB torch dependency.\n\n**Watermark codec.** The identifier is spread across mid-frequency DCT\ncoefficients in the luma plane, four coefficients per bit with majority vote on\nread.\n\n- Block selection avoids flat regions, since a flat 8x8 block carries no\n  coefficient large enough to modulate without visible banding.\n- Strength is set per-block from local variance rather than globally, which is\n  what kept PSNR above 42 dB on the sample set.\n- We checked survival by re-encoding sealed images down the quality ladder. A\n  sealed PNG cut 34x to a metadata-stripped JPEG still resolved at 0/64 bits of\n  error, which was the point at which we stopped tuning.\n- Crops below about 60% of frame area lose sync and fail to resolve at all.\n\n**Storage.** Every seal writes an object plus a manifest object under a\nretention rule. At startup the service probes the bucket configuration and logs\nwhether compliance mode is on, so a misconfigured deployment is visible in the\nfirst ten lines of the log rather than at the first subpoena.\n\n**Verification script.** A 122-line script drives the whole path end to end:\nseal a fixture, push it through the re-encode ladder, verify, and diff the\nrecovered identifier against the sealed one. It runs clean.\n\n## Challenges we ran into\n\nThe Genblaze SDK gave us most of our lost hours.\n\n1. `genblaze.upload_with_retention()` silently drops the `retain_until`\n   argument when `mode=\"compliance\"` is passed as a keyword rather than\n   positionally. The object uploads. The lock does not apply. Nothing in the\n   response says so \u2014 you only see it if you re-read the object metadata.\n2. `genblaze.list_objects()` on the async client paginates with a cursor that\n   resets when the bucket holds more than 1,000 objects under a shared prefix,\n   so a full listing loops forever over the first page. We only caught it\n   because our test bucket crossed 1,000 objects on the second day.\n3. `genblaze.head_object()` raises `KeyError` instead of the documented\n   `ObjectNotFound` when the key is absent, which meant our \"is this already\n   sealed?\" check crashed rather than returning false.\n\nWe worked around all three. The first one cost us most of a night, because\nevery layer above it reported success.\n\nBeyond the SDK: DCT watermarking is a tuning problem with no closed form, and\nwe spent a lot of the second day moving a strength constant up and down.\n\n## Accomplishments that we're proud of\n\nThe seal survives the transformations that actually happen to images on the\ninternet \u2014 screenshot, re-upload, re-encode, strip metadata \u2014 and the storage\nrecord cannot be rewritten even by us. Both halves are real, both halves are\nrunning, and the codec is ours.\n\n## What we learned\n\nFrequency-domain watermarking is far more robust than the spatial approaches we\nstarted with, and immutability is a storage configuration problem rather than a\ncryptography problem. Also: when an SDK reports success, verify the side effect\nindependently.\n\n## What's next\n\nNewsroom-scale archives are the obvious first buyer \u2014 a wire service sealing\nevery frame at ingest, then answering provenance questions about images that\nleft their control years earlier. We would need batch sealing, a retention\npolicy per collection, and a verification endpoint that a newsroom's CMS can\ncall without an SDK.\n\nAfter that: video, where the same codec applies per keyframe, and a hosted\nverification page for people who have an image and no tooling at all.\n";
+  var EXAMPLE_WON = "# FirstFrame\n\nMaya waits sixty-five seconds to watch four seconds of video and say no.\nFirstFrame gets her to that same no in 9.3 seconds versus 65.7 seconds, measured on job `j_47cdc2`.\nNo account, no key, no card \u2014 no API key is required, so open the live URL and reproduce it now.\n\n**Repo:** https://github.com/firstframe/firstframe \u00b7\n**Live:** https://firstframe.live \u00b7\n**Demo video:** https://youtu.be/8Qm2ZrK1x0A (2:41)\n\n## The person we built it for\n\nMaya storyboards ads. She types a prompt, hits generate, and waits. Sixty-five\nseconds later four seconds of video appear, she watches them, and she says no \u2014\nthe camera pushes in when she wanted it locked off. Then she edits three words\nand waits sixty-five seconds again. On a normal afternoon she does this thirty\nor forty times. She is not waiting to see a finished video. She is waiting for\npermission to reject one.\n\nThat is what the 9.3 seconds buys: she reaches the same no while the old\npipeline is still on frame two. Job `j_47cdc2` is in the live log, and you can\nreplay it.\n\n## What it does\n\nFirstFrame streams the composition decision before the video exists.\n\nIt renders the model's first frame at full resolution as soon as the diffusion\npass for frame 0 completes, then shows the camera path as a vector overlay from\nthe motion conditioning \u2014 before a single subsequent frame is denoised. If the\nframing is wrong, you kill the job and re-prompt. If it's right, the render\ncontinues into the same job with no restart.\n\n- **9.3s** to a decidable first frame, versus **65.7s** to the full four-second\n  clip. Both on job `j_47cdc2`, same prompt, same model, same GPU class.\n- **86%** of jobs in our own use are killed before frame 12, which is where the\n  saving comes from: you pay for a seventh of the compute on the rejects.\n- Kill-and-re-prompt keeps the seed, so the second attempt differs by your edit\n  and nothing else.\n\n## How we built it\n\nA Modal worker holds the diffusion loop open and publishes a frame-0 tensor to\na Redis stream the moment it's denoised; the browser gets it over SSE. The\ncamera overlay is read out of the motion-conditioning tensor directly rather\nthan inferred from output frames, which is why it can be drawn before those\nframes exist.\n\nThe cancel path is the load-bearing part. A kill has to stop billed GPU work,\nnot just close the socket, so cancellation is a token checked between denoise\nsteps and the worker exits the loop mid-job. We assert on the exit, not on the\nUI: the test issues a kill at step 4 and asserts the worker recorded a\n`CANCELLED_AT_STEP` value below 12 and released the GPU lease.\n\n**358 executable assertions** run on every push, in 71 seconds, no GPU required\n\u2014 the diffusion worker is faked at the tensor boundary so the orchestration,\ncancellation, billing, and streaming paths are all exercised for real. The\nsuite includes the failure cases, not only the happy path.\n\nWe also attack our own guarantee rather than asserting it. We claim a killed\njob stops billing; the test suite starts a real job, kills it, and then asserts\nthe meter is frozen by reading the billing ledger 30 seconds later and\nrequiring the same value. And we claim rendered outputs are immutable once\nsealed: the test issues a real delete against the sealed object and asserts the\nstorage layer refuses it, with the refusal captured in the test output.\n\n## What is broken right now\n\nWe are keeping this visible rather than hiding it, because you will hit it:\n\n- Prompts over 340 characters make the camera overlay drift from the eventual\n  render. The overlay renders with an `UNRELIABLE` badge above that length\n  instead of quietly lying. One of our demo prompts trips it on purpose.\n- Two of the 358 assertions are marked `KNOWN FAULT` and are visible in the CI\n  output: multi-shot prompts report the first shot's camera path for the whole\n  clip. We know why, we have not fixed it.\n- Cold start on the first job of the day is about 40 seconds of Modal container\n  boot, which is not included in the 9.3s number and should not be.\n\n## Upstream\n\nBuilding this surfaced real bugs in the tooling under us: **three pull requests\nand an issue sent upstream**, each with a reproduction and a failing test.\n\n- `modal-client` #2214 \u2014 cancellation token not propagated to child spawns, so\n  killed jobs kept a GPU lease. Merged.\n- `modal-client` #2219 \u2014 `Function.spawn()` leaks the call ID on timeout. Open,\n  maintainer reviewed.\n- `sse-starlette` #118 \u2014 flush ordering drops the final event when the client\n  disconnects mid-stream. Merged.\n- `diffusers` #9873 (issue) \u2014 `callback_on_step_end` fires after the VAE decode\n  rather than after the denoise step, which makes true per-step early exit\n  impossible without patching. Reproduction attached, no fix yet.\n\n## Who this is for, today\n\nStoryboard and previz teams at ad agencies and game studios \u2014 people who\ngenerate dozens of throwaway clips per session and reject most of them. That's\nMaya, and there are about forty of her in the two studios that have been using\nthis for a week. The live URL is open to anyone: no account, no key, no card.\n\n## What's next\n\nPer-shot overlays for multi-shot prompts (the known fault above), a self-hosted\nworker image so studios can run it on their own GPUs, and an editor plugin so\nthe reject-and-re-prompt loop happens where the storyboard already lives.\n";
+
+  var EXAMPLES = { lost: EXAMPLE_LOST, won: EXAMPLE_WON };
+
+  var SEVERITIES = ["blocker", "friction", "note"];
+
+  /* Group headings, carried over from the CLI so both reports say the same thing. */
+  var HEADINGS = {
+    blocker:  ["Blockers", "a judge stops reading, or a criterion scores zero"],
+    friction: ["Friction", "costs you points, not the round"],
+    note:     ["Notes", "worth a minute if you have one"]
+  };
+
+  var PLURALS = { blocker: "blockers", friction: "friction", note: "notes" };
+
+  var form = document.getElementById("form");
+  var draft = document.getElementById("draft");
+  var button = document.getElementById("check");
+  var results = document.getElementById("results");
+
+  /* Deployed, the function sits next to the page. ?api= points a local copy
+     at a running one. Opened from a file:// there is nothing to post to, and
+     the page says so rather than failing at the network layer. */
+  var override = new URLSearchParams(location.search).get("api");
+  var ENDPOINT = override || "/api/check";
+  var OFFLINE = !override && location.protocol === "file:";
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function count(n, severity) {
+    return n + " " + (n === 1 ? severity : PLURALS[severity]);
+  }
+
+  function verdict(counts, total) {
+    if (total === 0) return "Nothing caught.";
+    if (counts.blocker) return "Not ready to send.";
+    if (counts.friction) return "Worth another pass.";
+    return "Close. Notes only.";
+  }
+
+  /* ---- rendering ---------------------------------------------------- */
+
+  function renderFinding(finding) {
+    var card = el("article", "card card-" + finding.severity);
+
+    var head = el("div", "card-head");
+    head.appendChild(el("h3", "card-title", finding.title));
+    head.appendChild(el("span", "card-rule", finding.rule));
+    card.appendChild(head);
+
+    if (finding.evidence) {
+      var quote = el("blockquote", "evidence");
+      if (finding.line) quote.appendChild(el("span", "ev-line", "line " + finding.line));
+      quote.appendChild(document.createTextNode(finding.evidence));
+      card.appendChild(quote);
+    } else {
+      /* An absence. The rule found nothing to quote, so the card shows
+         nothing — inventing a quote here is the one thing this tool won't do. */
+      card.appendChild(el("div", "evidence evidence-absent",
+        "Nothing to quote. The draft never says it."));
+    }
+
+    if (finding.fix) {
+      var fix = el("p", "fix");
+      fix.appendChild(el("span", "tag", "Fix"));
+      fix.appendChild(el("span", null, finding.fix));
+      card.appendChild(fix);
+    }
+
+    if (finding.provenance) card.appendChild(el("p", "prov", finding.provenance));
+
+    return card;
+  }
+
+  function renderReport(report) {
+    var findings = report.findings || [];
+    var counts = report.counts || { blocker: 0, friction: 0, note: 0 };
+    var total = findings.length;
+
+    var frag = document.createDocumentFragment();
+
+    var block = el("div", "verdict rule-off");
+    var score = el("div", "score");
+    score.appendChild(document.createTextNode(String(report.score)));
+    score.appendChild(el("span", "score-den", "/100"));
+    block.appendChild(score);
+
+    var text = el("div", "verdict-text");
+    text.appendChild(el("p", "verdict-line", verdict(counts, total)));
+    text.appendChild(el("p", "verdict-counts", SEVERITIES.map(function (s) {
+      return count(counts[s] || 0, s);
+    }).join("  ·  ")));
+    block.appendChild(text);
+    frag.appendChild(block);
+
+    if (total === 0) {
+      frag.appendChild(el("p", "clean-note",
+        "Every rule passed. The linter checks structure and placement, not truth — " +
+        "it cannot tell you a number is wrong, only that it is missing or buried."));
+    }
+
+    SEVERITIES.forEach(function (severity) {
+      var group = findings.filter(function (f) { return f.severity === severity; });
+      if (!group.length) return;
+
+      var section = el("section", "group group-" + severity);
+      var head = el("h2", "group-head");
+      head.appendChild(el("span", "group-name", HEADINGS[severity][0]));
+      head.appendChild(el("span", "group-gloss", HEADINGS[severity][1]));
+      section.appendChild(head);
+      group.forEach(function (f) { section.appendChild(renderFinding(f)); });
+      frag.appendChild(section);
+    });
+
+    show(frag);
+  }
+
+  function renderNotice(lead, detail) {
+    var notice = el("div", "notice");
+    notice.appendChild(el("p", null, lead));
+    if (detail) notice.appendChild(el("p", null, detail));
+    show(notice);
+  }
+
+  function show(node) {
+    results.textContent = "";
+    var holder = el("div", "reveal");
+    holder.appendChild(node);
+    results.appendChild(holder);
+    results.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  /* ---- behaviour ----------------------------------------------------- */
+
+  function busy(on) {
+    button.disabled = on;
+    button.textContent = on ? "Checking…" : "Check my submission";
+  }
+
+  function check() {
+    var text = draft.value;
+    if (!text.trim()) {
+      renderNotice("Nothing to check yet.",
+        "Paste a draft above, or load one of the two examples.");
+      draft.focus();
+      return;
+    }
+
+    if (OFFLINE) {
+      renderNotice(
+        "This page is open from a file, so there is no checker to post to.",
+        "The ten rules run server-side in api/check.py. Deploy it, or run " +
+        "python cli.py draft.md in the repo for the same report in the terminal."
+      );
+      return;
+    }
+
+    busy(true);
+    fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text, meta: {} })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || ("Checker returned " + response.status));
+        return data;
+      }, function () {
+        throw new Error("Checker returned " + response.status + " and not JSON");
+      });
+    }).then(renderReport).catch(function (error) {
+      renderNotice("The checker did not answer.", String(error.message || error));
+    }).then(function () {
+      busy(false);
+    });
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    check();
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-example]"), function (btn) {
+    btn.addEventListener("click", function () {
+      document.title = "CLICK-FIRED";
+      draft.value = EXAMPLES[btn.getAttribute("data-example")];
+      results.textContent = "";
+      draft.focus();
+      draft.setSelectionRange(0, 0);
+      draft.scrollTop = 0;
+    });
+  });
+
+  draft.addEventListener("keydown", function (event) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      check();
+    }
+  });
+  document.title = "JS-END-OK";
+})();
+</script>
+</body>
+</html>
