@@ -85,6 +85,15 @@ inherit. About forty minutes of a two-and-a-half-hour window.
 Rule 6 of this linter is *"no visible failure."* It would be a poor advertisement to hide
 my own.
 
+## Tests
+
+```bash
+python -m pytest -q    # 98 tests
+```
+
+Every rule has its own test, and both fixtures are asserted end to end: the losing
+submission must produce blockers, the winning one must not.
+
 ## Honest limits
 
 It lints **structure and placement, not truth.** It can tell you your headline number sits

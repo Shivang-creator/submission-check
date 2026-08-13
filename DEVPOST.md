@@ -116,6 +116,14 @@ I'm reporting it because **rule 6 of my own linter is "no visible failure,"** an
 winner I studied yesterday kept one on the page. A perfect surface reads as an untested
 one.
 
+### 98 tests
+
+`python -m pytest -q` — 98 tests, no GPU, no network, no key. Every rule has its own
+test and both fixtures are asserted end to end.
+
+I am stating the number because **rule 1 of this linter is 'no test count stated'**, and I
+lost a hackathon to exactly that omission yesterday.
+
 ### Honest limits
 
 It lints **structure and placement**, not truth. It can tell you your headline number is

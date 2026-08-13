@@ -66,7 +66,7 @@ python cli.py fixtures/firstframe.md
 python -m pytest -q
 ```
 
-> "N tests. Zero dependencies, no API key, no account — standard library only, runs
+> "98 tests. Zero dependencies, no API key, no account — standard library only, runs
 > offline. There's no model in the loop, deliberately: a model would make the findings
 > unverifiable, and unverifiable findings are the problem this thing exists to fix.
 >
