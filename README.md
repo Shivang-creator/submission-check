@@ -2,8 +2,10 @@
 
 **Lint a hackathon submission before you send it.**
 
+**Try it live → https://checksubmission.vercel.app** — no login, no key.
+
 ```bash
-python cli.py draft.md
+python3 cli.py draft.md
 ```
 
 No dependencies. No API key. No account. Standard library only — it runs offline.
@@ -33,8 +35,8 @@ learned in. Nothing here is hypothetical.
 The repo ships two real fixtures — a losing submission and a winning one:
 
 ```bash
-python cli.py fixtures/proofprint.md    # my entry that lost. lights up.
-python cli.py fixtures/firstframe.md    # the entry that won. nearly silent.
+python3 cli.py fixtures/proofprint-real.md   # the real text I submitted: 30/100
+python3 cli.py fixtures/firstframe.md        # the entry that beat it:    98/100
 ```
 
 Same linter, two files, opposite verdicts.
@@ -88,7 +90,7 @@ my own.
 ## Tests
 
 ```bash
-python -m pytest -q    # 98 tests
+python3 -m pytest -q    # 98 tests
 ```
 
 Every rule has its own test, and both fixtures are asserted end to end: the losing
